@@ -1,2 +1,2 @@
 # OpenDrift_Moana_project
-Codes used for the Moana Project
+Repository of the codes used for the Moana Project
