@@ -63,7 +63,7 @@ for fi = 1:length(traj_output)
     
     for i = 1:size(disp_age, 1)
         for j = 1:size(disp_age, 2)
-            if disp_age(i, j) < max_PLD
+            if disp_age(i, j) > max_PLD
                 disp_lat(i, j) = NaN;
                 disp_lon(i, j) = NaN;
             end
