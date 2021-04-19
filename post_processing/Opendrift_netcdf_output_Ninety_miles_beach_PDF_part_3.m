@@ -43,6 +43,7 @@ disp_settlement = cell(1, length(traj_output)); % Pre-allocate the variable sett
 
 for fi = 1:length(traj_output)
     
+    disp(fi)
     %% Load and sort variables
     
     % Get fill value
