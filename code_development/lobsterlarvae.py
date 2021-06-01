@@ -7,7 +7,7 @@
 #  Authors : Romain Chaput
 # 
 # 
-#  Under development - more testing to do
+#  Under development - not working yet
 
 
 
