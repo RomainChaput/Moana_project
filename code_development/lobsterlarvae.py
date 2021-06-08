@@ -14,6 +14,7 @@
 import numpy as np
 from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
 import logging; logger = logging.getLogger(__name__)
+from datetime import timezone
 #import shapefile # added for settlement in polygon only
 from shapely.geometry import Polygon, Point, MultiPolygon # added for settlement in polygon only
 import numba
@@ -27,21 +28,21 @@ class LobsterLarvaeObj(Lagrangian3DArray):
     """
 
     variables = Lagrangian3DArray.add_variables([
-        ('diameter', {'dtype': np.float32,
-                      'units': 'm',
-                      'default': 0.0014}),  # for NEA Cod
         ('neutral_buoyancy_salinity', {'dtype': np.float32,
                                        'units': '[]',
-                                       'default': 31.25}),  # for NEA Cod
+                                       'default': 31.25}),
+        ('age_seconds', {'dtype': np.float32,
+                         'units': 's',
+                         'default': 0.}),
         ('density', {'dtype': np.float32,
                      'units': 'kg/m^3',
                      'default': 1028.}),
-        ('hatched', {'dtype': np.float32,
-                     'units': '',
-                     'default': 0.}),
         ('terminal_velocity', {'dtype': np.float32,
                        'units': 'm/s',
-                       'default': 0.})])
+                       'default': 0.}),
+        ('light', {'dtype': np.float32,
+                     'units': 'ugEm2',
+                     'default': 0.})])
 
 
 class LobsterLarvae(OceanDrift):
@@ -50,7 +51,6 @@ class LobsterLarvae(OceanDrift):
     """
 
     ElementType = LobsterLarvaeObj
-    # ElementType = BuoyantTracer 
 
     required_variables = {
         'x_sea_water_velocity': {'fallback': 0},
@@ -90,7 +90,7 @@ class LobsterLarvae(OceanDrift):
     # required_profiles = ['ocean_vertical_diffusivity']
 
     # The depth range (in m) which profiles shall cover
-    required_profiles_z_range = [-120, 0]
+    required_profiles_z_range = [-200, 0]
 
     # Default colors for plotting
     status_colors = {'initial': 'green', 'active': 'blue',
@@ -107,44 +107,48 @@ class LobsterLarvae(OceanDrift):
 
         # resuspend larvae that reach seabed by default 
         self.set_config('drift:lift_to_seafloor',True)
-        # set the defasult min_settlement_age_seconds to 0.0
-        # self.set_config('drift:min_settlement_age_seconds', '0.0')
 
         ##add config spec
-        self._add_config({ 'drift:min_settlement_age_seconds': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
+        self._add_config({ 'biology:min_settlement_age_seconds': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
                            'description': 'minimum age in seconds at which larvae can start to settle on seabed or stick to shoreline',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'drift:settlement_in_habitat': {'type': 'bool', 'default': False,
+        self._add_config({ 'biology:settlement_in_habitat': {'type': 'bool', 'default': False,
                            'description': 'settlement restricted to suitable habitat only',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'drift:direct_orientation_habitat': {'type': 'bool', 'default': False,
+        self._add_config({ 'biology:direct_orientation_habitat': {'type': 'bool', 'default': False,
                            'description': 'biased correlated random walk toward the nearest habitat',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'drift:min_orient_age_seconds': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
-                           'description': 'minimum age age of larvae when orientation starts',
+        self._add_config({ 'biology:stage_puerulus': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
+                           'description': 'minimum age age of puerulus larvae',
                            'level': self.CONFIG_LEVEL_BASIC}})
-        self._add_config({ 'drift:max_orient_distance': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'meters',
+        self._add_config({ 'biology:late_stage_phyllosoma': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
+                           'description': 'minimum age age of late stage phyllosoma',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:max_orient_distance': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'meters',
                            'description': 'maximum detection distance of the habitat for orientation',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:max_swimming_speed_puerulus': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'centimeters.seconds^-1',
+                           'description': 'maximum swimming speed of the puerulus when crusing toward the habitat',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:min_swimming_speed_puerulus': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'centimeters.seconds^-1',
+                           'description': 'minimum swimming speed of the puerulus when crusing toward the habitat',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:vertical_position_daytime': {'type': 'float', 'default': -5.00,'min': -100.0, 'max':0.0, 'units': 'meters negative down',
+                           'description': 'the depth a species is expected to inhabit during the day time, in meters, negative down',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:vertical_position_nighttime': {'type': 'float', 'default': -1.00,'min': -100.0, 'max':0.0, 'units': 'meters negative down',
+                           'description': 'the depth a species is expected to inhabit during the night time, in meters, negative down',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:vertical_migration_speed_constant': {'type': 'float', 'default': None,'min': 0.0, 'max': 1.0e-3, 'units': 'm/s',
+                           'description': 'Constant vertical migration rate (m/s), if None, use values from update_terminal_velocity()',
                            'level': self.CONFIG_LEVEL_BASIC}})					   
+      
         
-        
-    def habitat(self, shapefile_location):
-        """Suitable habitat in a shapefile"""
-        #global multiShp
-        #global centers
-        polyShp = fiona.open(shapefile_location) # import shapefile
-        polyList = []
-        #polyProperties = []
-        centers = []
-        for poly in polyShp: # create individual polygons from shapefile
-             polyGeom = Polygon(poly['geometry']['coordinates'][0]) 
-             polyList.append(polyGeom) # Compile polygon in a list
-             centers.append(polyGeom.centroid.coords[0]) # Compute centroid and return a [lon, lat] list
-             #polyProperties.append(poly['properties']) # For debugging => check if single polygon
-        self.multiShp = MultiPolygon(polyList).buffer(0) # Aggregate polygons in a MultiPolygon object and buffer to fuse polygons and remove errors
-        return self.multiShp, self.centers
-		
-    # Haversine formula to compute distances
+  #####################################################################################################################
+  # Accessory functions
+  #####################################################################################################################
+  
+  # Haversine formula to compute distances
     @numba.jit(nopython=True)
     def haversine_distance(self, s_lng,s_lat,e_lng,e_lat):
         # approximate radius of earth in km
@@ -168,18 +172,36 @@ class LobsterLarvae(OceanDrift):
         X = np.cos(rlat2)*np.sin(rlon2-rlon1)
         Y = np.cos(rlat1)*np.sin(rlat2)-np.sin(rlat1)*np.cos(rlat2)*np.cos(rlon2-rlon1)
         return np.arctan2(Y,X)
-
-    def nearest_habitat(self, lon, lat, centers):
-        self.dist = np.zeros(len(centers))
-        self.dist = self.haversine_distance(lon, lat, [centers[0] for centers in centers], [centers[1] for centers in centers])
-        self.nearest_center = np.argmin(self.dist)
-        return self.nearest_center, min(self.dist)
-
-
-    def update_terminal_velocity(self, Tprofiles=None,
-                                 Sprofiles=None, z_index=None):
-        pass
-#       self.elements.terminal_velocity = W
+     
+    def calculateMaxSunLight(self):
+            # Calculates the max sun radiation at given positions and dates (and returns zero for night time)
+            # 
+            # The method is using the third party library PySolar : https://pysolar.readthedocs.io/en/latest/#
+            # 
+            # 
+            # some other available options:
+            # https://pypi.org/project/solarpy/
+            # https://github.com/trondkr/pyibm/blob/master/light.py
+            # use calclight from Kino Module here  : https://github.com/trondkr/KINO-ROMS/tree/master/Romagnoni-2019-OpenDrift/kino
+            # ERcore : dawn and sunset times : https://github.com/metocean/ercore/blob/ercore_opensrc/ercore/lib/suncalc.py
+            # https://nasa-develop.github.io/dnppy/modules/solar.html#examples
+            # 
+            from pysolar import solar
+            date = self.time
+            date = date.replace(tzinfo=timezone.utc) # make the datetime object aware of timezone, set to UTC
+            logger.debug('Assuming UTC time for solar calculations')
+            # longitude convention in pysolar, consistent with Opendrift : negative reckoning west from prime meridian in Greenwich, England
+            # the particle longitude should be converted to the convention [-180,180] if that is not the case
+            sun_altitude = solar.get_altitude(self.elements.lon, self.elements.lat, date) # get sun altitude in degrees
+            sun_azimut = solar.get_azimuth(self.elements.lon, self.elements.lat, date) # get sun azimuth in degrees
+            sun_radiation = np.zeros(len(sun_azimut))
+            # not ideal get_radiation_direct doesnt accept arrays...
+            for elem_i,alt in enumerate(sun_altitude):
+                sun_radiation[elem_i] = solar.radiation.get_radiation_direct(date, alt)  # watts per square meter [W/m2] for that time of day
+            self.elements.light = sun_radiation * 4.6 #Converted from W/m2 to umol/m2/s-1"" - 1 W/m2 ≈ 4.6 μmole.m2/s
+            logger.debug('Solar radiation from %s to %s [W/m2]' % (sun_radiation.min(), sun_radiation.max() ) )
+            # print(np.min(sun_radiation))
+            # print(date)
 
     def sea_surface_height(self):
         '''fetches sea surface height for presently active elements
@@ -200,8 +222,52 @@ class LobsterLarvae(OceanDrift):
                                      z=0*self.elements.lon, profiles=None)
             sea_surface_height = \
                 env['sea_surface_height'].astype('float32') 
-        return sea_surface_height       
+        return sea_surface_height
+    
+    def surface_stick(self):
+        '''Keep particles just below the surface.
+           (overloads the OpenDrift3DSimulation version to allow for possibly time-varying
+           sea_surface_height)
+        '''
+        
+        sea_surface_height = self.sea_surface_height() # returns surface elevation at particle positions (>0 above msl, <0 below msl)
+        
+        # keep particle just below sea_surface_height (self.elements.z depth are negative down)
+        surface = np.where(self.elements.z >= sea_surface_height)
+        if len(surface[0]) > 0:
+            self.elements.z[surface] = sea_surface_height[surface] -0.01 # set particle z at 0.01m below sea_surface_height
+    
+    
+    #####################################################################################################################
+    # Definition of habitat
+    #####################################################################################################################
+      
+    def habitat(self, shapefile_location):
+        """Suitable habitat in a shapefile"""
+        #global multiShp
+        #global centers
+        polyShp = fiona.open(shapefile_location) # import shapefile
+        polyList = []
+        #polyProperties = []
+        centers = []
+        for poly in polyShp: # create individual polygons from shapefile
+             polyGeom = Polygon(poly['geometry']['coordinates'][0]) 
+             polyList.append(polyGeom) # Compile polygon in a list
+             centers.append(polyGeom.centroid.coords[0]) # Compute centroid and return a [lon, lat] list
+             #polyProperties.append(poly['properties']) # For debugging => check if single polygon
+        self.multiShp = MultiPolygon(polyList).buffer(0) # Aggregate polygons in a MultiPolygon object and buffer to fuse polygons and remove errors
+        return self.multiShp, self.centers
 
+    def nearest_habitat(self, lon, lat, centers):
+        self.dist = np.zeros(len(centers))
+        self.dist = self.haversine_distance(lon, lat, [centers[0] for centers in centers], [centers[1] for centers in centers])
+        self.nearest_center = np.argmin(self.dist)
+        return self.nearest_center, min(self.dist)
+    
+    
+    #####################################################################################################################
+    # Interaction with environment
+    #####################################################################################################################
 
     def interact_with_seafloor(self):
         """Seafloor interaction according to configuration setting"""
@@ -236,20 +302,6 @@ class LobsterLarvae(OceanDrift):
         logger.debug('%s elements hit seafloor, %s were older than %s sec. and deactivated, %s were lifted back to seafloor' \
             % (len(below),len(below_and_older),self.get_config('drift:min_settlement_age_seconds'),len(below_and_younger)))    
 
-
-    def surface_stick(self):
-        '''Keep particles just below the surface.
-           (overloads the OpenDrift3DSimulation version to allow for possibly time-varying
-           sea_surface_height)
-        '''
-        
-        sea_surface_height = self.sea_surface_height() # returns surface elevation at particle positions (>0 above msl, <0 below msl)
-        
-        # keep particle just below sea_surface_height (self.elements.z depth are negative down)
-        surface = np.where(self.elements.z >= sea_surface_height)
-        if len(surface[0]) > 0:
-            self.elements.z[surface] = sea_surface_height[surface] -0.01 # set particle z at 0.01m below sea_surface_height
-            
     
     def interact_with_coastline(self,final = False): 
         """Coastline interaction according to configuration setting
@@ -347,8 +399,7 @@ class LobsterLarvae(OceanDrift):
                 self.deactivate_elements((self.environment.land_binary_mask == 1) & \
                                          (self.elements.age_seconds >= self.get_config('drift:min_settlement_age_seconds')),
                                          reason='settled_on_coast')
-
-    
+                    
     def interact_with_habitat(self):
            """Habitat interaction according to configuration setting
                The method checks if a particle is within the limit of an habitat before allowing settlement
@@ -369,100 +420,94 @@ class LobsterLarvae(OceanDrift):
            # ** function expects an array of size consistent with self.elements.lon                
            self.deactivate_elements((self.environment.land_binary_mask == 6), reason='home_sweet_home')
 
+    
+    #####################################################################################################################
+    # IBM: horizontal and vertical movements
+    #####################################################################################################################
 		
     def direct_orientation_habitat(self):
            """"Biased correlated random walk toward the nearest habitat. 
            Equations described in Codling et al., 2004 and Staaterman et al., 2012
            """
            # Create a  vector for swimming movement
-           x_velocity = np.array([0]*len(self.elements.lat))
-           y_velocity = np.array([0]*len(self.elements.lon))
-		   # Check if the particles are old enough to orient
-           old_enough = np.where(self.elements.age_seconds >= self.get_config('drift:min_orient_age_seconds'))[0]
-           if len(old_enough) > 0 :
-               for i in range(len(self.elements.lon[old_enough])):
-                   pt_lon = self.elements.lon[old_enough][i]
-                   pt_lat = self.elements.lat[old_enough][i]
-                   pt_lon_old = self.previous_lon[old_enough][i]
-                   pt_lat_old = self.previous_lat[old_enough][i]
-                   habitat_near = self.nearest_habitat(pt_lon, pt_lat, self.centers)
-                   if habitat_near[1] > self.get_config('drift:max_orient_distance'):
-                       x_velocity[old_enough][i] = 0 # for the moment no movement when larvae too far from habitat
-                       y_velocity[old_enough][i] = 0
-                   else:
-                       # Case where particle close enough and old enough to orient
-                       # Strength of orientation (depend on distance to the habitat)
-                       d = 1 - (habitat_near[1]/self.get_config('drift:max_orient_distance'))
-                       
-                       # Compute direction of nearest habitat. See Staaterman et al., 2012
-                       theta_pref = - self.haversine_angle(pt_lon, pt_lat, centers_habitat[habitat_near[0]][0], centers_habitat[habitat_near[0]][1]) 
-                    
-                       # Compute direction from previous timestep
-                       theta_current = self.haversine_angle(pt_lon_old, pt_lat_old, pt_lon, pt_lat)
-                    
-                       # Mean turning angle
-                       mu = -d * (theta_current - theta_pref)
-                    
-                       # New direction randomly selected in Von Mises distribution
-                       ti  = np.random.vonmises(0, Kappa)
-                       theta = ti - theta_current - mu
-                       
-            
-               
-        
-        
-           #self.elements.z[larvae] = np.minimum(0, self.elements.z[larvae] + direction*max_migration_per_timestep)       
-        
-           #update position of larvae:
-               #self.update_positions(x_velocity, y_velocity)
-               #use a vector of len(self.elements.lon) where x_vel = 0 for non-moving particles and uorient (or vorient)
-
-             # Case where particle too young to orient
-           if age_particle < competency:
-                randm_vel = math.sqrt((2*horizon_diff)/timestep)
-                u_diff = np.random.normal(0, 1)*randm_vel
-                v_diff = np.random.normal(0, 1)*randm_vel
-                u_particle = u_diff
-                v_particle = v_diff
+           u_velocity = np.array([0]*len(self.elements.lat))
+           v_velocity = np.array([0]*len(self.elements.lon))
+		   # Puerulus only swim at night: Wilkin and Jeffs 2011
+           if self.elements.light>0: # If sun light (daytime)
+               pass
            else:
-                habitat_near = nearest_habitat(lon_particle, lat_particle, centers_habitat) # habitat_near(0:ID centroid, 1:distance in km)
-                if habitat_near[1] > Beta:
-                    # Case where particle too far to orient
-                    randm_vel = math.sqrt((2*horizon_diff)/timestep)
-                    u_diff = np.random.normal(0, 1)*randm_vel
-                    v_diff = np.random.normal(0, 1)*randm_vel
-                    u_particle = u_diff
-                    v_particle = v_diff
-                else:
-                    # Case where particle close enough and old enough to orient
-                    # Strength of orientation (depend on distance to the habitat)
-                    d = 1 - (habitat_near[1]/Beta)
-                    
-                    # Compute direction of nearest habitat. See Staaterman et al., 2012
-                    theta_pref = -haversine_angle(lon_particle, lat_particle, centers_habitat[habitat_near[0]][0], centers_habitat[habitat_near[0]][1]) 
-                    
-                    # Compute direction from previous timestep
-                    theta_current = haversine_angle(lon_particle_old, lat_particle_old, lon_particle, lat_particle)
-                    
-                    # Mean turning angle
-                    mu = -d * (theta_current - theta_pref)
-                    
-                    # New direction randomly selected in Von Mises distribution
-                    ti  = np.random.vonmises(0, Kappa)
-                    theta = ti - theta_current - mu
-                    
-                    # Compute swimming speed
-                    swimming_speed_age = swimming_speed * age_particle
-                    
-                    # Compute uorient and vorient
-                    uorient = swimming_speed_age*math.cos(theta)
-                    vorient = swimming_speed_age*math.sin(theta)
-                    u_particle = uorient
-                    v_particle = vorient
-             
-             
-                
-			
+               # Check if the particles are old enough to orient
+               old_enough = np.where(self.elements.age_seconds >= self.get_config('drift:stage_puerulus'))[0]
+               if len(old_enough) > 0 :
+                   for i in range(len(self.elements.lon[old_enough])):
+                       pt_lon = self.elements.lon[old_enough][i]
+                       pt_lat = self.elements.lat[old_enough][i]
+                       pt_lon_old = self.previous_lon[old_enough][i]
+                       pt_lat_old = self.previous_lat[old_enough][i]
+                       habitat_near = self.nearest_habitat(pt_lon, pt_lat, self.centers)
+                       if habitat_near[1] > self.get_config('drift:max_orient_distance'):
+                           u_velocity[old_enough][i] = 0 # for the moment no movement when larvae too far from habitat
+                           v_velocity[old_enough][i] = 0
+                       else:
+                            # Case where particle close enough and old enough to orient
+                            # Strength of orientation (depend on distance to the habitat)
+                            d = 1 - (habitat_near[1]/self.get_config('drift:max_orient_distance'))
+                            # Compute direction of nearest habitat. See Staaterman et al., 2012
+                            theta_pref = - self.haversine_angle(pt_lon, pt_lat, self.centers_habitat[habitat_near[0]][0], self.centers_habitat[habitat_near[0]][1]) 
+                            # Compute direction from previous timestep
+                            theta_current = self.haversine_angle(pt_lon_old, pt_lat_old, pt_lon, pt_lat)
+                            # Mean turning angle
+                            mu = -d * (theta_current - theta_pref)
+                            # New direction randomly selected in Von Mises distribution
+                            ti  = np.random.vonmises(0, 5) # First parameter: mu, second parameter: kappa (control the uncertainty of orientation) 
+                            theta = ti - theta_current - mu
+                            
+                            # Compute swimming speed: 
+                            #beta distribution to reproduce the findings in Jeffs and Hollands 2000 (speeds from 13 and 22cm/s with outlier at 30.7cm/s) 
+                            # and Wilkin and Jeffs 2011 (model predictions btwn 13 and 16cm/s) (mean = 1/(1+B/A) => 16.8cm/s here with a=2 and b=8)
+                            # Not age dependent because puerulus do not develop further until they reach an habitat
+                            swimming_speed = (self.get_config('drift:min_swimming_speed_puerulus') \
+                                + np.random.beta(2, 8) \
+                                * (self.get_config('drift:max_swimming_speed_puerulus') - self.get_config('drift:min_swimming_speed_puerulus'))) \
+                                * self.time_step.total_seconds()
+                            # Compute x and y velocity
+                            u_velocity[old_enough][i] = swimming_speed/100*np.cos(theta)
+                            v_velocity[old_enough][i] = swimming_speed/100*np.sin(theta)
+                           
+           self.update_positions(u_velocity, v_velocity)
+           
+    
+    def update_terminal_velocity(self):
+        
+            ''' Diel vertical migration for late life stages (VIII to XI) only. Modified from pelagicplankton_moana.py developed by Simon Weppe
+            
+            Modifies the same variable than update_terminal_velocity(), self.elements.terminal_velocity = W, but using a different algorithm.
+            Larvae are assumed to move to daytime or nighttime vertical positions in the water column, at a constant rate
+           
+            the actual settling is taken care of in vertical_mixing() or vertical_buoyancy() (i.e. from OceanDrift methods)
+            self.calculateMaxSunLight() # compute solar radiation at particle positions (using PySolar)
+            it is expected that larve will go down during day time and up during night time but that is not fixed in the code. 
+            Particles will simply go towards the daytime or nighttime poistions.
+            https://github.com/metocean/ercore/blob/ercore_nc/ercore/materials/biota.py#L80 '''
+            vertical_velocity = np.abs(self.get_config('biology:vertical_migration_speed_constant'))  # magnitude in m/s 
+            late_stage_phy = np.where(self.elements.age_seconds < self.get_config('drift:late_stage_phyllosoma'))[0]
+            if len(late_stage_phy) > 0 :
+                z_day = self.get_config('biology:vertical_position_daytime')    #  the depth a species is expected to inhabit during the day time, in meters, negative down') #
+                z_night =self.get_config('biology:vertical_position_nighttime') # 'the depth a species is expected to inhabit during the night time, in meters, negative down') #
+                ind_day = np.where(self.elements.light[late_stage_phy]>0)
+                ind_night = np.where(self.elements.light[late_stage_phy]==0)
+                logger.debug('Using constant migration rate (%s m/s) towards day and night time positions' % (vertical_velocity) )
+                logger.debug('%s particles in day time' % (len(ind_day[0])))
+                logger.debug('%s particles in night time' % (len(ind_night[0])))
+                # for particles in daytime : particles below the daytime position need to go up while particles above the daytime position need to go down
+                # (same for for particles in nightime)
+                # Note : depth convention is negative down in Opendrift
+                # 
+                # e.g. z=-5, z_day = -3, below daytime position,  need to go up (terminal_velocity>0) 
+                #      diff = (z - z_day) = -2, so w = - np.sign(diff) * vertical_velocity
+                self.elements.terminal_velocity[late_stage_phy][ind_day] = - np.sign(self.elements.z[late_stage_phy][ind_day] - z_day) * vertical_velocity
+                self.elements.terminal_velocity[late_stage_phy][ind_night] = - np.sign(self.elements.z[late_stage_phy][ind_night] - z_night) * vertical_velocity
+                # print(self.elements.z)
 
         
     def increase_age_and_retire(self):  # ##So that if max_age_seconds is exceeded particle is flagged as died
@@ -492,91 +537,28 @@ class LobsterLarvae(OceanDrift):
                     self.deactivate_elements(self.elements.lat < S, reason='outside')
                 if N is not None:
                     self.deactivate_elements(self.elements.lat > N, reason='outside')
-                    
- 
-                    
- 
-    #def update(self):
-
-    #    self.update_fish_larvae()
-    #    self.advect_ocean_current()
-    #    self.update_terminal_velocity()
-    #    self.vertical_mixing()
-    #    self.larvae_vertical_migration()
- 
-    # Simply move particles with ambient current
-        self.update_positions(self.environment.x_sea_water_velocity,
-                              self.environment.y_sea_water_velocity)
-        
-        # Finally advect according to wind-wave forces
-        velocity_u = uw_tot*np.cos(uw_dir)
-        velocity_v = uw_tot*np.sin(uw_dir)
-        self.update_positions(velocity_u, velocity_v)
-        
-        
+           
  
     def update(self):
         """Update positions and properties of buoyant particles."""
 
-        # Update element age
-        # self.elements.age_seconds += self.time_step.total_seconds()
-        # already taken care of in increase_age_and_retire() in basemodel.py
-
-        # Horizontal advection
-        # Check for presence in habitat
+        ## Horizontal advection
+        self.advect_ocean_current() # Independent from age
+        # Horizontal swimming: Puerulus stage swimming to shore
         if self.get_config('drift:direct_orientation') is True:
-            self.direct_orientation_habitat()
-        else:
-            self.advect_ocean_current()
+            self.direct_orientation_habitat() # self.update_positions in the function direct_orientation_habitat
         
-        # Check for presence in habitat
-        if self.get_config('drift:settlement_in_habitat') is True:
-            self.interact_with_habitat()
-
+        ## Update vertical position
+        self.vertical_advection()     
         # Turbulent Mixing or settling-only 
         if self.get_config('drift:vertical_mixing') is True:
-            self.update_terminal_velocity()  #compute vertical velocities, two cases possible - constant, or same as pelagic egg
+            self.update_terminal_velocity()  #compute vertical velocities with diel vertical migration for late stage phyllosoma and puerulus
             self.vertical_mixing()
         else:  # Buoyancy
             self.update_terminal_velocity()
             self.vertical_buoyancy()
-
-        self.vertical_advection() 
-                    
-# =============================================================================
-#     def lift_elements_to_seafloor(self):  ###Initiate settlement if particles touch bottom during competence period
-#         '''Lift any elements which are below seafloor and check age
-#           (overloads the lift_elements_to_seafloor() from basemodel.py)
-# 
-#            The methods will check age of larvae that touched the seabed.
-#              if age_particle < min_settlement_age_seconds : resuspend larvae
-#              if age_particle > min_settlement_age_seconds : larvaes settle and will be deactivated.
-# 
-#         '''
-#             
-#         if 'sea_floor_depth_below_sea_level' not in self.priority_list:
-#             return
-#         
-#         sea_floor_depth = self.sea_floor_depth() # returns a positive down water depth
-#         sea_surface_height = self.sea_surface_height() # returns surface elevation at particle positions (>0 above msl, <0 below msl)
-# 
-#         below = self.elements.z < -sea_floor_depth
-#         
-#         if self.get_config('drift:lift_to_seafloor') is True:
-#             # self.elements.z[below] = -sea_floor_depth[below] - intial code
-# 
-#             self.elements.z[below] = np.minimum(-sea_floor_depth[below], sea_surface_height[below])
-#             # make sure particles dont get above water at this stage i.e. z>sea_surface_height
-#             # this can happen when reader has negative values for sea_floor_depth
-#             # e.g. : sea_floor_depth() returns e.g. -2.0 (i.e. wetting-drying points)
-#             # 
-#             # if sea_surface_height is not available from reader, fallback value is used (=0 by default).
-#         else:
-#             self.deactivate_elements(below, reason='seafloor')
-# 
-#         # Deactivate elements that touched seabed and have age>min_settlement_age_seconds
-#         if (self.get_config('drift:min_settlement_age_seconds') != 0.0) & (self.get_config('drift:settlement_in_habitat') is False):
-#             older = self.elements.age_seconds >= self.get_config('drift:min_settlement_age_seconds')
-#             if older.any():
-#                 self.deactivate_elements(older & below ,reason='settled_on_bottom')
-# =============================================================================
+        
+        ## Settlement in habitat
+        if self.get_config('drift:settlement_in_habitat') is True:
+            self.interact_with_habitat()
+            
