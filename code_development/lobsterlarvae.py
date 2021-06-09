@@ -1,7 +1,7 @@
 # This file is intended for Jasus edwardsii and has been adapted from bivalvelarvae.py and larvalfish.py 
 # It introduces a multi-step dispersal phase based on the development of the lobster larvae: nauplosioma, phyllosoma, and puerulus
 # . Nauplosioma stage: lobster larvae hatch into this stage and rise to the surface where they metamorphose into phyllosoma. Brief stage (<12hrs) that is not represented in this code, but can be implied by the release of larvae slightly offshore and at the surface  
-# . Phyllosoma stage: planktonic stage where larvae can control their vertical position in the water column via buoyancy. This stage is characterized by diel vertical migration. Rarely found inshore after the stage 5, so we remove phyllosoma larvae found within 20 km of the coast 4 to 12 mo after hatching.
+# . Phyllosoma stage: planktonic stage where larvae can control their vertical position in the water column via buoyancy. Late stage is characterized by diel vertical migration and slow swimming. Rarely found inshore after the stage 5, so we remove phyllosoma larvae found within 20 km of the coast 4 to 12 mo after hatching.
 # . Puerulus stage: at this stage the lobster larvae have developed horizontal swimming capabilities and if close enough to the coast will swim to their settlement habitat. The pueruli have poorly developed mouth and rely on stored energy for the final stretch of their dispersal.
 # 
 #  Authors : Romain Chaput
@@ -15,7 +15,6 @@ import numpy as np
 from opendrift.models.oceandrift import OceanDrift, Lagrangian3DArray
 import logging; logger = logging.getLogger(__name__)
 from datetime import timezone
-#import shapefile # added for settlement in polygon only
 from shapely.geometry import Polygon, Point, MultiPolygon # added for settlement in polygon only
 import numba
 #import pymap3d as pm
@@ -94,7 +93,8 @@ class LobsterLarvae(OceanDrift):
 
     # Default colors for plotting
     status_colors = {'initial': 'green', 'active': 'blue',
-                     'settled_on_coast': 'red', 'died': 'yellow', 'settled_on_bottom': 'magenta'}
+                     'settled_on_coast': 'red', 'died': 'yellow', 
+                     'settled_on_bottom': 'magenta', 'home_sweet_home': 'orange'}
 
     def __init__(self, *args, **kwargs):
         
@@ -106,7 +106,7 @@ class LobsterLarvae(OceanDrift):
         self.set_config('general:coastline_action', 'previous')
 
         # resuspend larvae that reach seabed by default 
-        self.set_config('drift:lift_to_seafloor',True)
+        self.set_config('general:seafloor_action', 'lift_to_seafloor')
 
         ##add config spec
         self._add_config({ 'biology:min_settlement_age_seconds': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
@@ -123,6 +123,9 @@ class LobsterLarvae(OceanDrift):
                            'level': self.CONFIG_LEVEL_BASIC}})
         self._add_config({ 'biology:late_stage_phyllosoma': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
                            'description': 'minimum age age of late stage phyllosoma',
+                           'level': self.CONFIG_LEVEL_BASIC}})
+        self._add_config({ 'biology:mid_stage_phyllosoma': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'seconds',
+                           'description': 'minimum age age of middle stage phyllosoma',
                            'level': self.CONFIG_LEVEL_BASIC}})
         self._add_config({ 'biology:max_orient_distance': {'type': 'float', 'default': 0.0,'min': 0.0, 'max': 1.0e10, 'units': 'meters',
                            'description': 'maximum detection distance of the habitat for orientation',
@@ -472,13 +475,11 @@ class LobsterLarvae(OceanDrift):
                                 * self.time_step.total_seconds()
                             # Compute x and y velocity
                             u_velocity[old_enough][i] = swimming_speed/100*np.cos(theta)
-                            v_velocity[old_enough][i] = swimming_speed/100*np.sin(theta)
-                           
+                            v_velocity[old_enough][i] = swimming_speed/100*np.sin(theta)              
            self.update_positions(u_velocity, v_velocity)
            
     
     def update_terminal_velocity(self):
-        
             ''' Diel vertical migration for late life stages (VIII to XI) only. Modified from pelagicplankton_moana.py developed by Simon Weppe
             
             Modifies the same variable than update_terminal_velocity(), self.elements.terminal_velocity = W, but using a different algorithm.
@@ -487,7 +488,7 @@ class LobsterLarvae(OceanDrift):
             the actual settling is taken care of in vertical_mixing() or vertical_buoyancy() (i.e. from OceanDrift methods)
             self.calculateMaxSunLight() # compute solar radiation at particle positions (using PySolar)
             it is expected that larve will go down during day time and up during night time but that is not fixed in the code. 
-            Particles will simply go towards the daytime or nighttime poistions.
+            Particles will simply go towards the daytime or nighttime positions.
             https://github.com/metocean/ercore/blob/ercore_nc/ercore/materials/biota.py#L80 '''
             vertical_velocity = np.abs(self.get_config('biology:vertical_migration_speed_constant'))  # magnitude in m/s 
             late_stage_phy = np.where(self.elements.age_seconds < self.get_config('drift:late_stage_phyllosoma'))[0]
@@ -509,10 +510,30 @@ class LobsterLarvae(OceanDrift):
                 self.elements.terminal_velocity[late_stage_phy][ind_night] = - np.sign(self.elements.z[late_stage_phy][ind_night] - z_night) * vertical_velocity
                 # print(self.elements.z)
 
+###################################################################################################################
+# Pelagic larval duration and mortality
+###################################################################################################################
+
+    def phyllosoma_mortality(self):
+        ''' Phyllosoma are not found inshore between 4 and 12 months of dispersal. 
+        This could be due to an increased in predatory pressure closer to the coast,
+        therefore, we remove all the phyllosoma larvae that are found within 20km of the coast
+        '''
+        mid_stage_phyllosoma =  np.where(self.elements.age_seconds <= self.get_config('biology:late_stage_phyllosoma'))[0]
+        mid_stage_phyllosoma =  np.where(self.elements.age_seconds[mid_stage_phyllosoma] >= self.get_config('biology:mid_stage_phyllosoma'))[0]
+        if len(mid_stage_phyllosoma) > 0:
+            for i in range(len(self.elements.lon[mid_stage_phyllosoma])):
+                pt_lon = self.elements.lon[mid_stage_phyllosoma][i]
+                pt_lat = self.elements.lat[mid_stage_phyllosoma][i]
+                habitat_near = self.nearest_habitat(pt_lon, pt_lat, self.centers)
+                if habitat_near[1] < 20000: # Remove phyllosoma found 20km inshore
+                    self.environment.land_binary_mask[mid_stage_phyllosoma][i] = 8
+        self.deactivate_elements((self.environment.land_binary_mask == 8), reason='swam_too_close_to_shore')
+                
+
         
     def increase_age_and_retire(self):  # ##So that if max_age_seconds is exceeded particle is flagged as died
             """Increase age of elements, and retire if older than config setting.
-
                >essentially same as increase_age_and_retire() from basemodel.py, 
                only using a diffrent reason for retiring particles ('died' instead of 'retired')
                .. could probably be removed...
@@ -539,6 +560,11 @@ class LobsterLarvae(OceanDrift):
                     self.deactivate_elements(self.elements.lat > N, reason='outside')
            
  
+###################################################################################################################
+# Update position of the larvae
+###################################################################################################################    
+ 
+    
     def update(self):
         """Update positions and properties of buoyant particles."""
 
@@ -561,4 +587,7 @@ class LobsterLarvae(OceanDrift):
         ## Settlement in habitat
         if self.get_config('drift:settlement_in_habitat') is True:
             self.interact_with_habitat()
+            
+        ## Mortality
+        self.phyllosoma_mortality()
             
