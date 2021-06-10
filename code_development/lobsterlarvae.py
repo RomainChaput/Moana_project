@@ -481,17 +481,17 @@ class LobsterLarvae(OceanDrift):
     
     def update_terminal_velocity(self):
             ''' Diel vertical migration for late life stages (VIII to XI) only. Modified from pelagicplankton_moana.py developed by Simon Weppe
+            Keep all stages within 100m of the surface
             
             Modifies the same variable than update_terminal_velocity(), self.elements.terminal_velocity = W, but using a different algorithm.
             Larvae are assumed to move to daytime or nighttime vertical positions in the water column, at a constant rate
-           
             the actual settling is taken care of in vertical_mixing() or vertical_buoyancy() (i.e. from OceanDrift methods)
             self.calculateMaxSunLight() # compute solar radiation at particle positions (using PySolar)
             it is expected that larve will go down during day time and up during night time but that is not fixed in the code. 
             Particles will simply go towards the daytime or nighttime positions.
             https://github.com/metocean/ercore/blob/ercore_nc/ercore/materials/biota.py#L80 '''
             vertical_velocity = np.abs(self.get_config('biology:vertical_migration_speed_constant'))  # magnitude in m/s 
-            late_stage_phy = np.where(self.elements.age_seconds < self.get_config('drift:late_stage_phyllosoma'))[0]
+            late_stage_phy = np.where(self.elements.age_seconds > self.get_config('biology:late_stage_phyllosoma'))[0]
             if len(late_stage_phy) > 0 :
                 z_day = self.get_config('biology:vertical_position_daytime')    #  the depth a species is expected to inhabit during the day time, in meters, negative down') #
                 z_night =self.get_config('biology:vertical_position_nighttime') # 'the depth a species is expected to inhabit during the night time, in meters, negative down') #
@@ -506,9 +506,18 @@ class LobsterLarvae(OceanDrift):
                 # 
                 # e.g. z=-5, z_day = -3, below daytime position,  need to go up (terminal_velocity>0) 
                 #      diff = (z - z_day) = -2, so w = - np.sign(diff) * vertical_velocity
-                self.elements.terminal_velocity[late_stage_phy][ind_day] = - np.sign(self.elements.z[late_stage_phy][ind_day] - z_day) * vertical_velocity
-                self.elements.terminal_velocity[late_stage_phy][ind_night] = - np.sign(self.elements.z[late_stage_phy][ind_night] - z_night) * vertical_velocity
+                self.elements.terminal_velocity[ind_day] = - np.sign(self.elements.z[ind_day] - z_day) * vertical_velocity
+                self.elements.terminal_velocity[ind_night] = - np.sign(self.elements.z[ind_night] - z_night) * vertical_velocity
                 # print(self.elements.z)
+                
+            # Create maximum depth for other larval stages
+            early_life = np.where(self.elements.age_seconds < self.get_config('biology:late_stage_phyllosoma'))[0]
+            if len(early_life) > 0:
+                too_deep = np.where(self.elements.z[early_life] < -100.0)[0]
+                self.elements.terminal_velocity[too_deep] = vertical_velocity # positive swimming in meter per seconds
+                
+                
+                
 
 ###################################################################################################################
 # Pelagic larval duration and mortality
