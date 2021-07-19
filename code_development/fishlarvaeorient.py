@@ -431,7 +431,7 @@ class FishLarvaeOrient(OceanDrift):
 		   if len(old_enough) > 0 :
 				    habitat_near, habitat_id = self.ball_centers.query(list(zip(np.deg2rad(self.elements.lat[old_enough]), np.deg2rad(self.elements.lon[old_enough]))), k=1)
 				    for i in range(len(self.elements.lat[old_enough])):
-					    if habitat_near[i][0]*6371 < self.get_config('biology:max_orient_distance'):
+					    if habitat_near[i][0]*6371 > self.get_config('biology:max_orient_distance'):
 						    u_velocity[old_enough][i] = 0
 						    v_velocity[old_enough][i] = 0
 					    else:
