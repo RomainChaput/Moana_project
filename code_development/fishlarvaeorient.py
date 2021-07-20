@@ -424,16 +424,16 @@ class FishLarvaeOrient(OceanDrift):
 		   Equations described in Codling et al., 2004 and Staaterman et al., 2012
 		   """
 		   # Create a  vector for swimming movement
-		   u_velocity = np.array([0]*len(self.elements.lat))
-		   v_velocity = np.array([0]*len(self.elements.lon))
+		   u_velocity = np.array([0.0]*len(self.elements.lat))
+		   v_velocity = np.array([0.0]*len(self.elements.lon))
 		   # Check if the particles are old enough to orient
 		   old_enough = np.where(self.elements.age_seconds >= self.get_config('biology:flexion'))[0]
 		   if len(old_enough) > 0 :
 				    habitat_near, habitat_id = self.ball_centers.query(list(zip(np.deg2rad(self.elements.lat[old_enough]), np.deg2rad(self.elements.lon[old_enough]))), k=1)
 				    for i in range(len(self.elements.lat[old_enough])):
 					    if habitat_near[i][0]*6371 > self.get_config('biology:max_orient_distance'):
-						    u_velocity[old_enough][i] = 0
-						    v_velocity[old_enough][i] = 0
+						    u_velocity[old_enough][i] = 0.0
+						    v_velocity[old_enough][i] = 0.0
 					    else:
 						    pt_lon = self.elements.lon[old_enough][i]
 						    pt_lat = self.elements.lat[old_enough][i]
@@ -453,10 +453,11 @@ class FishLarvaeOrient(OceanDrift):
 						    theta = ti - theta_current - mu
 						
 						    # Compute u and v velocity
-						    u_velocity[old_enough][i] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
-						    v_velocity[old_enough][i] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta)   
+						    u_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
+						    v_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta) 
+						    #import pdb; pdb.set_trace()  
 							
-		   self.update_positions(u_velocity* self.time_step.total_seconds() , v_velocity* self.time_step.total_seconds())
+		   self.update_positions(u_velocity , v_velocity)
 		   
 		   
 	def swimming_speed(self, age):
