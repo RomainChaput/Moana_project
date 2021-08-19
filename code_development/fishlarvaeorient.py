@@ -4,7 +4,7 @@
 # 1. Direct orientation: Competent ('old enough to orient') larvae swim in the direction of the nearest habitat (represented by polygons in a shapefile) if they are close enough to detect it (controlled by user input). Based on Staaterman et al., 2012 and Codling et al., 2004.
 # 2. Rheotaxis orientation: Countercurrent swimming. Competent larvae swim against the direction of the current. Larvae swim at lower or equal speed as the currents, depending on their swimming speed. Larvae cannot swim faster than the currents.
 # 3. Cardinal orientation: Competent larvae swim in a pre-determine direction (controlled by user input).
-# 4. Continuous orientation: Type 1 => Rheotaxis orientation when larvae are offshore, then reef orientation when they are close enough to the reefs. OR. Type 2=> Cardinal orientation then reef orientation. User input cardinal heading, distance of reef detection, and beginning of orientation.
+# 4. Continuous orientation: Type 1 => Rheotaxis orientation when larvae are offshore, then reef orientation when they are close enough to the reefs AND ready to settle. OR. Type 2=> Cardinal orientation then reef orientation. User input cardinal heading, distance of reef detection, and beginning of orientation.
 #
 # Common to all orientation behavior: horizontal swimming speed developing with age of the larvae. Coded following the relationship exposed in Fisher and Bellwood, 2003.
 # This code also introduces Ontogenetic Vertical Migration (OVM) where larvae swim to different depth following their development (see Irisson et al., 2010 for distribution examples).
@@ -484,7 +484,7 @@ class FishLarvaeOrient(OceanDrift):
 			""""Orientation toward a fixed cardinal direction
 			"""
 			# Compute heading
-			thetaCard = np.deg2rad*self.get_config('biology:cardinal_heading')
+			thetaCard = np.deg2rad(self.get_config('biology:cardinal_heading'))
 			# Check if the particles are old enough to orient
 			old_enough = np.where(self.elements.age_seconds >= self.get_config('biology:beginning_orientation'))[0]
 			if len(old_enough) > 0 :
@@ -510,11 +510,12 @@ class FishLarvaeOrient(OceanDrift):
 					# Compute randomness of direction
 					ti  = np.random.vonmises(0, 5)
 					#Compute rheotaxis heading
-					thetaRheo = -np.arctan2(self.elements.y_vel[old_enough[i]], self.elements.x_vel[old_enough[i]])
+					#import pdb; pdb.set_trace()  
+					thetaRheo = -np.arctan2(self.environment.y_sea_water_velocity[old_enough[i]], self.environment.x_sea_water_velocity[old_enough[i]])
 					theta = thetaRheo + ti
 				
 					# Compute current speed absolute value
-					uv = np.sqrt(self.elements.x_vel[old_enough][i]**2 + self.elements.y_vel[old_enough][i]**2)
+					uv = np.sqrt(self.environment.x_sea_water_velocity[old_enough[i]]**2 + self.environment.y_sea_water_velocity[old_enough[i]]**2)
 					# Compute norm of swimming speed
 					norm_swim = np.abs(self.swimming_speed(self.elements.age_seconds[old_enough][i]))
 				
@@ -523,8 +524,8 @@ class FishLarvaeOrient(OceanDrift):
 						self.u_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
 						self.v_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta)
 					else:
-						self.u_velocity[old_enough[i]] = uv * cos(theta)
-						self.v_velocity[old_enough[i]] = uv * sin(theta)
+						self.u_velocity[old_enough[i]] = uv * np.cos(theta)
+						self.v_velocity[old_enough[i]] = uv * np.sin(theta)
 			
 			self.update_positions(self.u_velocity , self.v_velocity)
 
@@ -533,46 +534,51 @@ class FishLarvaeOrient(OceanDrift):
 			"""Continuous orientation of the larvae using either rheotaxis orientation and direct orientation when getting closer to the reefs, 
 			or cardinal orientation and direct orientation when getting closer to the reefs
 				"""
-			# Check if the particles are old enough to orient
+			# Check if the particles are old enough to orient toward the reefs and settle
 			old_enough = np.where(self.elements.age_seconds >= self.get_config('biology:beginning_orientation'))[0]
 			if len(old_enough) > 0 :
-				habitat_near, habitat_id = self.ball_centers.query(list(zip(np.deg2rad(self.elements.lat[old_enough]), np.deg2rad(self.elements.lon[old_enough]))), k=1)
 				for i in range(len(self.elements.lat[old_enough])):
-					if habitat_near[i][0]*6371 > self.get_config('biology:max_orient_distance'):
-						if self.get_config('biology:orientation')=='continuous_1':
-							# Compute randomness of direction
-							ti  = np.random.vonmises(0, 5)
-							#Compute rheotaxis heading
-							thetaRheo = -np.arctan2(self.elements.y_vel[old_enough[i]], self.elements.x_vel[old_enough[i]])
-							theta = thetaRheo + ti
+					if self.get_config('biology:orientation')=='continuous_1':
+						# Compute randomness of direction
+						ti  = np.random.vonmises(0, 5)
+						#Compute rheotaxis heading
+						thetaRheo = -np.arctan2(self.environment.y_sea_water_velocity[old_enough[i]], self.environment.x_sea_water_velocity[old_enough[i]])
+						theta = thetaRheo + ti
 				
-							# Compute current speed absolute value
-							uv = np.sqrt(self.elements.x_vel[old_enough][i]**2 + self.elements.y_vel[old_enough][i]**2)
-							# Compute norm of swimming speed
-							norm_swim = np.abs(self.swimming_speed(self.elements.age_seconds[old_enough][i]))
+						# Compute current speed absolute value
+						uv = np.sqrt(self.environment.x_sea_water_velocity[old_enough[i]]**2 + self.environment.y_sea_water_velocity[old_enough[i]]**2)
+						# Compute norm of swimming speed
+						norm_swim = np.abs(self.swimming_speed(self.elements.age_seconds[old_enough][i]))
 				
-							if norm_swim < uv:
+						if norm_swim < uv:
 								# Compute u and v velocity
 								self.u_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
 								self.v_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta)
-							else:
-								self.u_velocity[old_enough[i]] = uv * cos(theta)
-								self.v_velocity[old_enough[i]] = uv * sin(theta)
-								
-						if self.get_config('biology:orientation')=='continuous_2':
-							# Computing preferred direction
-							ti  = np.random.vonmises(0, 5)
-							theta = thetaCard + ti
-				
-							# Compute u and v velocity
-							self.u_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
-							self.v_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta)
-							
 						else:
-							pt_lon = self.elements.lon[old_enough][i]
-							pt_lat = self.elements.lat[old_enough][i]
-							pt_lon_old = self.previous_lon[old_enough][i]
-							pt_lat_old = self.previous_lat[old_enough][i]
+								self.u_velocity[old_enough[i]] = uv * np.cos(theta)
+								self.v_velocity[old_enough[i]] = uv * np.sin(theta)
+								
+					if self.get_config('biology:orientation')=='continuous_2':
+						# Computing preferred direction
+						thetaCard = np.deg2rad(self.get_config('biology:cardinal_heading'))
+						ti  = np.random.vonmises(0, 5)
+						theta = thetaCard + ti
+				
+						# Compute u and v velocity
+						self.u_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
+						self.v_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta)
+			
+			# Check if larvae are old enough to go back to the reef to settle
+			looking_for_reef = np.where(self.elements.age_seconds >= self.get_config('biology:min_settlement_age_seconds'))[0]
+			if len(looking_for_reef) > 0:
+				# Check if larvae are close enough to detect the reef
+				habitat_near, habitat_id = self.ball_centers.query(list(zip(np.deg2rad(self.elements.lat[looking_for_reef]), np.deg2rad(self.elements.lon[looking_for_reef]))), k=1)
+				for i in range(len(self.elements.lat[looking_for_reef])):
+						if habitat_near[i][0]*6371 < self.get_config('biology:max_orient_distance'):
+							pt_lon = self.elements.lon[looking_for_reef][i]
+							pt_lat = self.elements.lat[looking_for_reef][i]
+							pt_lon_old = self.previous_lon[looking_for_reef][i]
+							pt_lat_old = self.previous_lat[looking_for_reef][i]
 							# Case where particle close enough and old enough to orient
 							# Strength of orientation (depend on distance to the habitat)
 							d = 1 - (habitat_near[i][0]*6371/self.get_config('biology:max_orient_distance'))
@@ -587,8 +593,8 @@ class FishLarvaeOrient(OceanDrift):
 							theta = ti - theta_current - mu
 						
 							# Compute u and v velocity
-							self.u_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.cos(theta)
-							self.v_velocity[old_enough[i]] = self.swimming_speed(self.elements.age_seconds[old_enough][i])*np.sin(theta)
+							self.u_velocity[looking_for_reef[i]] = self.swimming_speed(self.elements.age_seconds[looking_for_reef][i])*np.cos(theta)
+							self.v_velocity[looking_for_reef[i]] = self.swimming_speed(self.elements.age_seconds[looking_for_reef][i])*np.sin(theta)
 						
 			self.update_positions(self.u_velocity , self.v_velocity)
 	
@@ -716,3 +722,4 @@ class FishLarvaeOrient(OceanDrift):
 			
 		## Mortality
 		self.larval_mortality()
+			
