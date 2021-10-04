@@ -155,7 +155,7 @@ n = length(Paua_habitat)+1;
 MTX = zeros(length(Paua_habitat)+1, length(Paua_habitat)+1);
 MTX_3D = zeros(length(Paua_habitat)+1, length(Paua_habitat)+1);
 
-for fl = 1:length(output_files_names)
+for fl = 1:10%length(output_files_names) %=> pre-earthquake
     
     % Move to the output files location
     evalc(['cd ' output_files_names{fl};]);
@@ -422,7 +422,7 @@ colormap(bluewhitered);
 ylabel('Source Habitat');
 xlabel('Receiving Habitat');
 colorbar
-title('10yrs connectivity between sampling sites - Kaikoura Paua')
+title('12yrs connectivity between sampling sites - Kaikoura Paua')
 c = colorbar;
 c.Label.String = 'Percentage of settlement';
 set(gca,'YTickLabel',{'BoatH', 'Blocks', 'Katu', 'KaiP', 'HBay', 'Papa', 'Ward', 'CapeC'}, ...
