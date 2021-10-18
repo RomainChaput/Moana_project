@@ -1,0 +1,5 @@
+Collection of Matlab codes to plot the LCS from the Moana backbone model in New Zealand.
+
+A preliminary step consists in splitting the netcdf in hourly files.
+
+Under development. 18/10/2021
